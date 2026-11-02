@@ -166,6 +166,42 @@ pub fn finish_first<T>(
     (result, handles)
 }
 
+/// Consumes submitted handles and yields their results as they become ready.
+///
+/// Each `next()` blocks until a result is ready; empty input ends immediately.
+/// If multiple results are ready, their relative order is unspecified.
+/// Task panics are re-raised, just like [`TaskHandle::wait`].
+/// Dropping the iterator drops remaining handles, but does not cancel their tasks.
+pub fn as_completed<T>(
+    handles: impl IntoIterator<Item = TaskHandle<T>>,
+) -> impl Iterator<Item = anyhow::Result<(T, usize)>> {
+    let mut handles: Vec<TaskHandle<T>> = handles.into_iter().collect();
+    std::iter::from_fn(move || {
+        // return empty iterator if no handles remain
+        if handles.is_empty() {
+            return None;
+        }
+
+        let (index, result) = {
+            let mut select = crossbeam::channel::Select::default();
+            for handle in &handles {
+                select.recv(&handle.rx);
+            }
+            let operation = select.select();
+            let index = operation.index();
+            (index, operation.recv(&handles[index].rx))
+        };
+        handles.swap_remove(index); // remove the handle that completed
+        Some(match result {
+            Ok(crate::tasks::TaskResult::Success(value, worker_id)) => Ok((value, worker_id)),
+            Ok(crate::tasks::TaskResult::Panic(payload)) => std::panic::resume_unwind(payload),
+            Err(_) => Err(anyhow::anyhow!(
+                "failed to recv task result, possible reasons: worker thread panicked or dropped before sending the result"
+            )),
+        })
+    })
+}
+
 #[test]
 fn lib_test() {
     init_global_pool();

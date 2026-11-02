@@ -125,6 +125,7 @@ fn main() -> Result<()> {
         " {bar:40.cyan/blue} {pos:3}/{len:3} task",
     )?);
 
+    let submit_time_start = Instant::now();
     let start = Instant::now();
     for _ in 0..TASKS {
         let task = TaskKind::ALL[fastrand::usize(..TaskKind::ALL.len())];
@@ -143,6 +144,8 @@ fn main() -> Result<()> {
             }
         }
     }
+    let submit_time_end = submit_time_start.elapsed().as_secs_f64();
+    println!("time taken to submit tasks: {submit_time_end}s");
 
     loop {
         let total_task_submitted = pool.total_task_completed();
