@@ -1,24 +1,11 @@
 **Parallelos** is a task scheduler for `massively parallel computing`.
-The implementation & API is **very experimental (edge/deadlock cases are documented)**,
-combined ideas of for what I found from
-this [wiki page](https://en.wikipedia.org/wiki/Category:Scheduling_algorithms)
+The implementation & API is **very experimental (edge/deadlock cases are documented)** and combined ideas of for what I
+found from this [wiki page](https://en.wikipedia.org/wiki/Category:Scheduling_algorithms)
 
 Currently, the scheduler more or less implements `list scheduling` algorithm with `longest-processing-time-first` (LPT)
 heuristic.
 
 > Nested parallelism is not implemented, anything weird or funny can lead to deadlocks 💀.
-
-References:
-
-- https://en.wikipedia.org/wiki/List_scheduling
-- https://en.wikipedia.org/wiki/Longest-processing-time-first_scheduling
-- https://en.wikipedia.org/wiki/Optimal_job_scheduling
-- https://en.wikipedia.org/wiki/Identical-machines_scheduling
-- https://en.wikipedia.org/wiki/Uniform-machines_scheduling
-- https://en.wikipedia.org/wiki/Shortest_job_next
-- https://en.wikipedia.org/wiki/Shortest_remaining_time
-- https://en.wikipedia.org/wiki/Highest_response_ratio_next
-- https://en.wikipedia.org/wiki/Heterogeneous_earliest_finish_time
 
 Benchmark:
 
@@ -27,8 +14,8 @@ Benchmark:
 
 warming up with 1536 tasks
 running 4168 tasks with 16 workers (payload 34 MB)
-
 time taken to submit tasks: 0.0047682s
+
 worker   tasks        busy     util
 ------------------------------------
     0     303      107.33s    99.80%
@@ -57,4 +44,17 @@ achieved makespan: 107.547 sec
 ideal makespan: 106.570 sec
 total busy: 1705.114 sec
 total util: 99.09%
+
+# last updated: 11-06-2026
 ```
+References:
+
+- https://en.wikipedia.org/wiki/List_scheduling
+- https://en.wikipedia.org/wiki/Longest-processing-time-first_scheduling
+- https://en.wikipedia.org/wiki/Optimal_job_scheduling
+- https://en.wikipedia.org/wiki/Identical-machines_scheduling
+- https://en.wikipedia.org/wiki/Uniform-machines_scheduling
+- https://en.wikipedia.org/wiki/Shortest_job_next
+- https://en.wikipedia.org/wiki/Shortest_remaining_time
+- https://en.wikipedia.org/wiki/Highest_response_ratio_next
+- https://en.wikipedia.org/wiki/Heterogeneous_earliest_finish_time

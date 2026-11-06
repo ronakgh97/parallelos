@@ -10,6 +10,7 @@ use std::time::Instant;
 
 /// Handle to a worker thread, recv tasks from scheduler
 /// and run them until the scheduler is dropped
+#[derive(Debug)]
 pub struct WorkerHandle<S = ()> {
     #[allow(unused)]
     pub id: usize,
@@ -102,6 +103,7 @@ where
 }
 
 /// Stats of worker, needed for scheduling tasks to suitable worker thread
+#[derive(Debug)]
 pub struct WorkerStats {
     pub total_task_cost: AtomicU64,
     pub total_task_executed: AtomicU64,

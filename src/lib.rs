@@ -49,7 +49,7 @@ pub(crate) struct Task<S = ()> {
 
 pub(crate) static GLOBAL_WORKER_POOL: std::sync::LazyLock<WorkerPool> =
     std::sync::LazyLock::new(|| {
-        WorkerPool::init().expect("failed to initialize global worker pool")
+        WorkerPool::init().expect("Failed to initialize global worker pool")
     });
 
 /// Initializes the global worker pool.
@@ -93,7 +93,7 @@ where
         .min_by_key(|w| w.stats.total_task_cost.load(Ordering::Relaxed))
         .ok_or(anyhow::anyhow!("global_pool is not initialized"))?;
 
-    // assign costly task to least loaded worker
+    // assign costly task to the least loaded worker
     if cost_a_value < cost_b_value {
         let hb = pool.submit_to_worker(first.id, task_b, cost_b)?;
         let ha = pool.submit_to_worker(second.id, task_a, cost_a)?;
@@ -128,7 +128,7 @@ pub fn spawn<F: FnOnce() + Send + 'static>(
 
 /// Waits for one provided task to `finish first` and returns its result and the remaining handles.
 ///
-/// Remaining handles keep their relative order, no tasks are cancelled and handles not passed here are unaffected.
+/// Remaining handles keep their relative order, no tasks are canceled and handles not passed here are unaffected.
 /// If several results are ready, one is chosen randomly.
 /// A selected task's panic is re-raised, dropping the remaining handles during unwinding.
 pub fn finish_first<T>(
@@ -193,8 +193,8 @@ pub fn as_completed<T>(
         };
         handles.swap_remove(index); // remove the handle that completed
         Some(match result {
-            Ok(crate::tasks::TaskResult::Success(value, worker_id)) => Ok((value, worker_id)),
-            Ok(crate::tasks::TaskResult::Panic(payload)) => std::panic::resume_unwind(payload),
+            Ok(tasks::TaskResult::Success(value, worker_id)) => Ok((value, worker_id)),
+            Ok(tasks::TaskResult::Panic(payload)) => std::panic::resume_unwind(payload),
             Err(_) => Err(anyhow::anyhow!(
                 "failed to recv task result, possible reasons: worker thread panicked or dropped before sending the result"
             )),

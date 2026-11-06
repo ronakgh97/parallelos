@@ -24,6 +24,7 @@ macro_rules! exec_task {
 }
 
 /// A pool of worker threads with optional worker-owned state, that can schedule/execute tasks concurrently
+#[derive(Debug)]
 pub struct WorkerPool<S: 'static = ()> {
     pub(crate) worker_handles: Box<[WorkerHandle<S>]>,
     pub(crate) worker_threads: Box<[JoinHandle<()>]>,
@@ -31,6 +32,13 @@ pub struct WorkerPool<S: 'static = ()> {
     #[allow(unused)]
     idle_tx: crossbeam::channel::Sender<()>,
     idle_rx: crossbeam::channel::Receiver<()>,
+}
+
+impl Default for WorkerPool<()> {
+    /// Similar to [`WorkerPool::init()`].
+    fn default() -> Self {
+        Self::init().expect("Failed to initialize default worker pool")
+    }
 }
 
 /// Snapshot of a worker's current state, used for `monitoring` and `scheduling` decisions

@@ -43,6 +43,7 @@ enum TaskKind {
 
 impl TaskKind {
     const ALL: [TaskKind; 4] = [TaskKind::Hex, TaskKind::Sha, TaskKind::Aes, TaskKind::Zstd];
+    #[inline]
     fn cost(self) -> TaskCost {
         match self {
             TaskKind::Hex => TaskCost::Normal,
@@ -51,6 +52,7 @@ impl TaskKind {
             TaskKind::Zstd => TaskCost::High,
         }
     }
+    #[inline]
     fn run(self) -> u64 {
         match self {
             TaskKind::Hex => {
@@ -78,7 +80,7 @@ impl TaskKind {
     }
 }
 
-const WORKERS: usize = 16; // I have intel i7-14650hx, 24 Cores
+const WORKERS: usize = 16; // I have intel i7-14650hx, 24 cores
 const TASKS: usize = 4168;
 const WARMUP_TASKS: usize = 1536;
 
@@ -113,18 +115,19 @@ fn main() -> Result<()> {
 
     let pool = WorkerPool::init_with(WORKERS)?;
     let pb_task = ProgressBar::new(TASKS as u64);
-    let mut hex_task_handles = Vec::with_capacity(TASKS);
-    let mut sha_task_handles = Vec::with_capacity(TASKS);
-    let mut aes_task_handles = Vec::with_capacity(TASKS);
-    let mut zstd_task_handles = Vec::with_capacity(TASKS);
-    println!(
-        "running {TASKS} tasks with {WORKERS} workers (payload {} MB)\n",
-        SHARED_PAYLOAD.len() / (1 << 20)
-    );
     pb_task.set_style(ProgressStyle::with_template(
         " {bar:40.cyan/blue} {pos:3}/{len:3} task",
     )?);
 
+    let mut hex_task_handles = Vec::with_capacity(TASKS);
+    let mut sha_task_handles = Vec::with_capacity(TASKS);
+    let mut aes_task_handles = Vec::with_capacity(TASKS);
+    let mut zstd_task_handles = Vec::with_capacity(TASKS);
+
+    println!(
+        "running {TASKS} tasks with {WORKERS} workers (payload {} MB)",
+        SHARED_PAYLOAD.len() / (1 << 20)
+    );
     let submit_time_start = Instant::now();
     let start = Instant::now();
     for _ in 0..TASKS {
@@ -145,7 +148,7 @@ fn main() -> Result<()> {
         }
     }
     let submit_time_end = submit_time_start.elapsed().as_secs_f64();
-    println!("time taken to submit tasks: {submit_time_end}s");
+    println!("time taken to submit tasks: {submit_time_end}s\n");
 
     loop {
         let total_task_submitted = pool.total_task_completed();
