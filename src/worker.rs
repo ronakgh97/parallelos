@@ -64,6 +64,14 @@ where
             if ready_tx.send(Ok(())).is_err() {
                 return;
             }
+
+            // pin the worker thread to physical core, if possible
+            if let Some(core_id) =
+                core_affinity::get_core_ids().and_then(|ids| ids.get(id).cloned())
+            {
+                core_affinity::set_for_current(core_id);
+            }
+
             while let Ok(task) = rx.recv() {
                 let start = Instant::now();
                 // execute the task, set id and state by the worker executing it
@@ -120,7 +128,10 @@ impl WorkerStats {
         const ALPHA: f64 = 1.0 / 8.0;
         let variable = elapsed.algebraic_div(cost as f64);
         let current = self.ewma_exec_time_per_task_cost.load(Ordering::Relaxed);
-        let new_ewa = ALPHA.algebraic_mul(variable) + (1.0 - ALPHA).algebraic_mul(current);
+        let new_ewa = ALPHA
+            .algebraic_mul(variable)
+            .algebraic_add(1.0 - ALPHA)
+            .algebraic_mul(current);
         self.ewma_exec_time_per_task_cost
             .store(new_ewa, Ordering::Relaxed);
     }
