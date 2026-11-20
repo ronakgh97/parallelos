@@ -85,8 +85,8 @@ impl TaskKind {
 }
 
 const WORKERS: usize = 16; // I have intel i7-14650hx, 24 cores
-const TASKS: usize = 4168;
-const WARMUP_TASKS: usize = TASKS / 4;
+const TASKS: usize = 4468;
+const WARMUP_TASKS: usize = TASKS / 2;
 
 fn print_stats(
     label: &str,
