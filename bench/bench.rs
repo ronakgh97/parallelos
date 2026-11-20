@@ -132,7 +132,9 @@ fn main() -> Result<()> {
             if total_task_submitted >= WARMUP_TASKS as u64 {
                 break;
             }
-            std::thread::yield_now();
+            // std::thread::yield_now();
+
+            std::thread::sleep(std::time::Duration::from_secs(1));
         }
         pb_task.finish_and_clear();
         black_box(pool.wait_all()?);
@@ -165,7 +167,9 @@ fn main() -> Result<()> {
         if total_task_submitted >= TASKS as u64 {
             break;
         }
-        std::thread::yield_now();
+        // std::thread::yield_now();
+
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
     pb_task.finish_and_clear();
     black_box(pool.wait_all()?); // blocks until all tasks finished

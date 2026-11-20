@@ -12,40 +12,53 @@ Benchmark:
 ```terminaloutput
 # run via cargo bench --bench bench
 
-warming up with 1536 tasks
-running 4168 tasks with 16 workers (payload 34 MB)
-time taken to submit tasks: 0.0092483s
+warming up with 1042 tasks
+running 4168 tasks with 16 parallelos workers (payload 34 MB)
+time taken to submit tasks: 0.0032066s
 
 worker   tasks        busy     util
 ------------------------------------
-    0     254      117.84s   100.00%
-    1     215      113.70s    96.49%
-    2     274      115.57s    98.08%
-    3     278      115.54s    98.05%
-    4     280      115.80s    98.27%
-    5     263      115.82s    98.29%
-    6     284      113.30s    96.14%
-    7     262      114.19s    96.91%
-    8     282      117.09s    99.37%
-    9     310      116.30s    98.69%
-   10     291      116.28s    98.68%
-   11     223      115.42s    97.95%
-   12     229      115.64s    98.13%
-   13     241      115.87s    98.33%
-   14     214      113.96s    96.71%
-   15     268      115.12s    97.69%
+    0     213      104.91s    91.89%
+    1     285      109.47s    95.89%
+    2     248      105.58s    92.48%
+    3     249      105.73s    92.61%
+    4     273      114.00s    99.86%
+    5     259      108.18s    94.75%
+    6     258      107.64s    94.28%
+    7     287      107.14s    93.85%
+    8     260      110.36s    96.66%
+    9     294      109.27s    95.71%
+   10     248      107.93s    94.54%
+   11     317      110.95s    97.18%
+   12     213      106.85s    93.59%
+   13     248      105.06s    92.03%
+   14     242      107.13s    93.83%
+   15     274      108.01s    94.60%
 ------------------------------------
-hex: 180.853 sec (9.79%) 
-sha: 23.803 sec (1.29%) 
-aes: 39.367 sec (2.13%) 
-zstd: 1603.396 sec (86.79%)
+hex: 160.416 sec (9.28%) 
+sha: 155.527 sec (9.00%) 
+aes: 38.764 sec (2.24%) 
+zstd: 1373.481 sec (79.47%)
 
-achieved makespan: 117.839 sec
-ideal makespan: 115.466 sec
-total busy: 1847.449 sec
-total util: 97.99%
+parallelos
+achieved makespan: 114.169 sec
+ideal makespan: 108.014 sec
+total busy: 1728.225 sec
+total util: 94.61%
 
-# last updated: 11-19-2026
+running rayon for comparison with same config
+hex: 177.392 sec (9.77%) 
+sha: 147.894 sec (8.15%) 
+aes: 38.991 sec (2.15%) 
+zstd: 1451.092 sec (79.93%)
+
+rayon
+achieved makespan: 113.798 sec
+ideal makespan: 113.461 sec
+total busy: 1815.369 sec
+total util: 99.70%
+
+# last updated: 11-20-2026
 ```
 
 References:
