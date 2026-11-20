@@ -42,7 +42,7 @@ where
         total_task_cost: AtomicU64::new(0),
         total_task_executed: AtomicU64::new(0),
         total_task_exec_time: AtomicF64::new(0.0),
-        ewma_exec_time_per_task_cost: AtomicF64::new(32.6), // zero would cause weird behavior on cold start worker
+        ewma_exec_time_per_task_cost: AtomicF64::new(12.8), // zero would cause weird behavior on cold start worker
     });
     let thread_stats = Arc::clone(&stats);
     let thread_handle = std::thread::Builder::new()
@@ -74,6 +74,7 @@ where
                 core_affinity::set_for_current(core_id);
             }
 
+            // start listening for tasks, and execute them until the scheduler is dropped
             while let Ok(task) = rx.recv() {
                 let start = Instant::now();
                 // execute the task, set id and state by the worker executing it
@@ -132,8 +133,7 @@ impl WorkerStats {
         let current = self.ewma_exec_time_per_task_cost.load(Ordering::Relaxed);
         let new_ewa = ALPHA
             .algebraic_mul(variable)
-            .algebraic_add(1.0 - ALPHA)
-            .algebraic_mul(current);
+            .algebraic_add((1.0 - ALPHA).algebraic_mul(current));
         self.ewma_exec_time_per_task_cost
             .store(new_ewa, Ordering::Relaxed);
     }

@@ -197,7 +197,7 @@ impl<S: 'static> WorkerPool<S> {
     /// i.e. how heavy the task is expected to be, in range of `Low` to `VeryHigh`
     /// and returns a handle for awaiting its result or errors if Pool is shut down.
     ///
-    /// This uses `List Scheduling` with `Online Approximation` (instead of full scan)
+    /// This uses `List Scheduling` with `Online Approximation (damping mechanism)` (instead of full scan)
     /// and `Uniform "Machine" Scheduling` to select a worker thread for executing the task.
     /// Uniform Scheduling means there scheduler accounts for the `predicted completion time` of each worker.
     /// This may `increase makespan`, but `minimizes the total busy time` of workers in most cases.
@@ -232,9 +232,11 @@ impl<S: 'static> WorkerPool<S> {
                 return Err(anyhow!("worker pool has been shut down"));
             }
 
-            // TODO: this is a problem, this dispatch is too good, and thats exactly the problem, ikyk
-
             // online approximation here; 0(1) instead of 0(n) scan
+            // this is because, a full deterministic scan would worker with slightly less load
+            // every single time, may create contention on that worker, and become a bottleneck
+            // randomization statistically prevents one worker from getting dominated, very important
+
             // rand sample two distinct workers and pick the one
             // with the lesser `total_tasks_cost (queued/running) * ewma_execution_time_per_task_cost`
             // i.e. find the worker that is predicted to complete it task faster
@@ -244,24 +246,21 @@ impl<S: 'static> WorkerPool<S> {
                 if b >= a { b + 1 } else { b }
             };
 
+            let rank = |worker: &WorkerHandle<S>| {
+                let total_cost = (cost.to_value() as f64)
+                    .algebraic_add(worker.stats.total_task_cost.load(Ordering::Relaxed) as f64);
+                let ewma = worker
+                    .stats
+                    .ewma_exec_time_per_task_cost
+                    .load(Ordering::Relaxed);
+                total_cost.algebraic_mul(ewma) // (incoming + queued cost) * ewma
+            };
+
             // uniform machine scheduling here; basically, select worker to optimize makespan
             // the rank is a predicted time (in nanos) to drain this worker task queue
             let (wa, wb) = (&self.worker_handles[a], &self.worker_handles[b]);
-            let rank_a = (wa.stats.total_task_cost.load(Ordering::Relaxed) as f64)
-                .algebraic_add(cost.to_value() as f64)
-                .algebraic_mul(
-                    wa.stats
-                        .ewma_exec_time_per_task_cost
-                        .load(Ordering::Relaxed),
-                );
-
-            let rank_b = (wb.stats.total_task_cost.load(Ordering::Relaxed) as f64)
-                .algebraic_add(cost.to_value() as f64)
-                .algebraic_mul(
-                    wb.stats
-                        .ewma_exec_time_per_task_cost
-                        .load(Ordering::Relaxed),
-                );
+            let rank_a = rank(wa);
+            let rank_b = rank(wb);
 
             match rank_a.total_cmp(&rank_b) {
                 CmpOrdering::Less => a,

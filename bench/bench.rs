@@ -1,8 +1,10 @@
 use aes_gcm::Nonce;
 use aes_gcm::aead::{Aead, Generate, Key, KeyInit};
 use anyhow::Result;
+use indicatif::{ProgressBar, ProgressStyle};
 use parallelos::pool::WorkerPool;
 use parallelos::tasks::TaskCost;
+use rayon::prelude::*;
 use sha2::Digest;
 use std::hint::black_box;
 use std::sync::LazyLock;
@@ -43,6 +45,7 @@ enum TaskKind {
 
 impl TaskKind {
     const ALL: [TaskKind; 4] = [TaskKind::Hex, TaskKind::Sha, TaskKind::Aes, TaskKind::Zstd];
+
     #[inline]
     fn cost(self) -> TaskCost {
         match self {
@@ -52,6 +55,7 @@ impl TaskKind {
             TaskKind::Zstd => TaskCost::High,
         }
     }
+
     #[inline]
     fn run(self) -> u64 {
         match self {
@@ -82,18 +86,41 @@ impl TaskKind {
 
 const WORKERS: usize = 16; // I have intel i7-14650hx, 24 cores
 const TASKS: usize = 4168;
-const WARMUP_TASKS: usize = 1536;
+const WARMUP_TASKS: usize = TASKS / 4;
+
+fn print_stats(
+    label: &str,
+    makespan: f64,
+    ideal_makespan: f64,
+    total_busy_sec: f64,
+    workers: usize,
+) {
+    println!("{label}");
+    println!(
+        "achieved makespan: {:.3} sec\nideal makespan: {:.3} sec\ntotal busy: {:.3} sec\ntotal util: {:.2}%",
+        makespan,
+        ideal_makespan,
+        total_busy_sec,
+        total_busy_sec / (makespan * workers as f64) * 100.0
+    );
+    println!();
+}
 
 fn main() -> Result<()> {
-    use indicatif::{ProgressBar, ProgressStyle};
+    // one identical task list for both libraries
+    let tasks: Vec<TaskKind> = (0..TASKS)
+        .map(|_| TaskKind::ALL[fastrand::usize(..TaskKind::ALL.len())])
+        .collect();
+
+    // parallelos warmup
     {
+        let pool = WorkerPool::init_with(WORKERS, false)?; // no thread pinning
         let pb_task = ProgressBar::new(WARMUP_TASKS as u64);
         println!("warming up with {WARMUP_TASKS} tasks");
         pb_task.set_style(ProgressStyle::with_template(
             " {bar:40.cyan/blue} {pos:3}/{len:3} task",
         )?);
 
-        let pool = WorkerPool::init_with(WORKERS + 2)?;
         for _ in 0..WARMUP_TASKS {
             let task = TaskKind::ALL[fastrand::usize(..TaskKind::ALL.len())];
             pool.submit_with(move || task.run(), task.cost())?;
@@ -106,49 +133,31 @@ fn main() -> Result<()> {
                 break;
             }
             std::thread::yield_now();
-            // std::thread::sleep(std::time::Duration::from_millis(50));
         }
         pb_task.finish_and_clear();
         black_box(pool.wait_all()?);
-        std::thread::sleep(std::time::Duration::from_secs(1));
     }
+    std::thread::sleep(std::time::Duration::from_secs(1));
 
-    let pool = WorkerPool::init_with(WORKERS)?;
+    let pool = WorkerPool::init_with(WORKERS, false)?;
     let pb_task = ProgressBar::new(TASKS as u64);
     pb_task.set_style(ProgressStyle::with_template(
         " {bar:40.cyan/blue} {pos:3}/{len:3} task",
     )?);
 
-    let mut hex_task_handles = Vec::with_capacity(TASKS);
-    let mut sha_task_handles = Vec::with_capacity(TASKS);
-    let mut aes_task_handles = Vec::with_capacity(TASKS);
-    let mut zstd_task_handles = Vec::with_capacity(TASKS);
-
     println!(
-        "running {TASKS} tasks with {WORKERS} workers (payload {} MB)",
+        "running {TASKS} tasks with {WORKERS} parallelos workers (payload {} MB)",
         SHARED_PAYLOAD.len() / (1 << 20)
     );
-    let submit_time_start = Instant::now();
+
+    let mut handles = Vec::with_capacity(TASKS);
     let start = Instant::now();
-    for _ in 0..TASKS {
-        let task = TaskKind::ALL[fastrand::usize(..TaskKind::ALL.len())];
-        match task {
-            TaskKind::Hex => {
-                hex_task_handles.push(pool.submit_with(move || task.run(), task.cost())?)
-            }
-            TaskKind::Sha => {
-                sha_task_handles.push(pool.submit_with(move || task.run(), task.cost())?)
-            }
-            TaskKind::Aes => {
-                aes_task_handles.push(pool.submit_with(move || task.run(), task.cost())?)
-            }
-            TaskKind::Zstd => {
-                zstd_task_handles.push(pool.submit_with(move || task.run(), task.cost())?)
-            }
-        }
+    let submit_start = Instant::now();
+    for &task in &tasks {
+        handles.push(pool.submit_with(move || task.run(), task.cost())?);
     }
-    let submit_time_end = submit_time_start.elapsed().as_secs_f64();
-    println!("time taken to submit tasks: {submit_time_end}s\n");
+    let submit_time = submit_start.elapsed().as_secs_f64();
+    println!("time taken to submit tasks: {submit_time}s\n");
 
     loop {
         let total_task_submitted = pool.total_task_completed();
@@ -157,32 +166,12 @@ fn main() -> Result<()> {
             break;
         }
         std::thread::yield_now();
-        // std::thread::sleep(std::time::Duration::from_millis(50));
     }
     pb_task.finish_and_clear();
-    black_box(pool.wait_all()?);
+    black_box(pool.wait_all()?); // blocks until all tasks finished
+    let makespan_0 = start.elapsed().as_secs_f64();
 
-    let makespan = start.elapsed().as_secs_f64();
     let worker_states = pool.state();
-
-    // wait_all above make sure, that these unwrap will not panic
-    let hex_task_time = hex_task_handles
-        .into_iter()
-        .map(|h| h.wait().unwrap().0)
-        .sum::<u64>() as f64;
-    let sha_task_time = sha_task_handles
-        .into_iter()
-        .map(|h| h.wait().unwrap().0)
-        .sum::<u64>() as f64;
-    let aes_task_time = aes_task_handles
-        .into_iter()
-        .map(|h| h.wait().unwrap().0)
-        .sum::<u64>() as f64;
-    let zstd_task_time = zstd_task_handles
-        .into_iter()
-        .map(|h| h.wait().unwrap().0)
-        .sum::<u64>() as f64;
-
     println!(
         "{:>5} {:>7} {:>11} {:>8}",
         "worker", "tasks", "busy", "util"
@@ -194,32 +183,116 @@ fn main() -> Result<()> {
             i,
             w.tasks_executed,
             w.tasks_exec_time / 1_000_000_000.0,
-            w.tasks_exec_time / (makespan * 1_000_000_000.0) * 100.0,
+            w.tasks_exec_time / (makespan_0 * 1_000_000_000.0) * 100.0,
         );
     }
     println!("{}", "-".repeat(36));
 
+    let mut hex_time = 0.0;
+    let mut sha_time = 0.0;
+    let mut aes_time = 0.0;
+    let mut zstd_time = 0.0;
+    for (task, handle) in tasks.iter().zip(handles) {
+        let elapsed = handle.wait()?.0 as f64;
+        match task {
+            TaskKind::Hex => hex_time += elapsed,
+            TaskKind::Sha => sha_time += elapsed,
+            TaskKind::Aes => aes_time += elapsed,
+            TaskKind::Zstd => zstd_time += elapsed,
+        }
+    }
+
     let total_worker_busy_time = worker_states.iter().map(|w| w.tasks_exec_time).sum::<f64>();
     println!(
         "hex: {:.3} sec ({:.2}%) \nsha: {:.3} sec ({:.2}%) \naes: {:.3} sec ({:.2}%) \nzstd: {:.3} sec ({:.2}%)",
-        hex_task_time / 1_000_000_000.0,
-        hex_task_time / (total_worker_busy_time) * 100.0,
-        sha_task_time / 1_000_000_000.0,
-        sha_task_time / (total_worker_busy_time) * 100.0,
-        aes_task_time / 1_000_000_000.0,
-        aes_task_time / (total_worker_busy_time) * 100.0,
-        zstd_task_time / 1_000_000_000.0,
-        zstd_task_time / (total_worker_busy_time) * 100.0
+        hex_time / 1_000_000_000.0,
+        hex_time / (total_worker_busy_time) * 100.0,
+        sha_time / 1_000_000_000.0,
+        sha_time / (total_worker_busy_time) * 100.0,
+        aes_time / 1_000_000_000.0,
+        aes_time / (total_worker_busy_time) * 100.0,
+        zstd_time / 1_000_000_000.0,
+        zstd_time / (total_worker_busy_time) * 100.0
     );
 
     println!();
-
-    println!(
-        "achieved makespan: {:.3} sec\nideal makespan: {:.3} sec\ntotal busy: {:.3} sec\ntotal util: {:.2}%",
-        makespan,
+    print_stats(
+        "parallelos",
+        makespan_0,
         total_worker_busy_time / 1_000_000_000.0 / WORKERS as f64,
         total_worker_busy_time / 1_000_000_000.0,
-        total_worker_busy_time / (makespan * WORKERS as f64 * 1_000_000_000.0) * 100.0
+        WORKERS,
+    );
+    drop(pool);
+
+    std::thread::sleep(std::time::Duration::from_secs(1));
+
+    println!("running rayon for comparison with same config");
+
+    // rayon warmup
+    {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(WORKERS)
+            .build()
+            .expect("failed to build rayon thread pool");
+
+        let warmup: Vec<TaskKind> = (0..WARMUP_TASKS)
+            .map(|_| TaskKind::ALL[fastrand::usize(..TaskKind::ALL.len())])
+            .collect();
+
+        pool.install(|| {
+            warmup.into_par_iter().for_each(|t| {
+                black_box(t.run());
+            });
+        });
+    }
+    std::thread::sleep(std::time::Duration::from_secs(1));
+
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(WORKERS)
+        .build()
+        .expect("failed to build rayon thread pool");
+
+    let start = Instant::now();
+    let results: Vec<(TaskKind, u64)> =
+        pool.install(|| tasks.par_iter().map(|t| (*t, t.run())).collect());
+    let makespan_1 = start.elapsed().as_secs_f64();
+
+    let mut hex_time = 0.0;
+    let mut sha_time = 0.0;
+    let mut aes_time = 0.0;
+    let mut zstd_time = 0.0;
+
+    for (kind, elapsed) in results {
+        match kind {
+            TaskKind::Hex => hex_time += elapsed as f64,
+            TaskKind::Sha => sha_time += elapsed as f64,
+            TaskKind::Aes => aes_time += elapsed as f64,
+            TaskKind::Zstd => zstd_time += elapsed as f64,
+        }
+    }
+
+    let total_busy = hex_time + sha_time + aes_time + zstd_time;
+
+    println!(
+        "hex: {:.3} sec ({:.2}%) \nsha: {:.3} sec ({:.2}%) \naes: {:.3} sec ({:.2}%) \nzstd: {:.3} sec ({:.2}%)",
+        hex_time / 1_000_000_000.0,
+        hex_time / total_busy * 100.0,
+        sha_time / 1_000_000_000.0,
+        sha_time / total_busy * 100.0,
+        aes_time / 1_000_000_000.0,
+        aes_time / total_busy * 100.0,
+        zstd_time / 1_000_000_000.0,
+        zstd_time / total_busy * 100.0
+    );
+
+    println!();
+    print_stats(
+        "rayon",
+        makespan_1,
+        total_busy / 1_000_000_000.0 / WORKERS as f64,
+        total_busy / 1_000_000_000.0,
+        WORKERS,
     );
 
     Ok(())

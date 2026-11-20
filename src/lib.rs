@@ -116,6 +116,25 @@ where
     }
 }
 
+/// Executes a list of tasks in parallel, blocks and returning their results in the same order as the input list.
+pub fn parallelize_list<T, F>(tasks: Vec<(F, TaskCost)>) -> anyhow::Result<Vec<T>>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    let pool = get_global_pool();
+    let mut handles = Vec::with_capacity(tasks.len());
+    for (task, cost) in tasks {
+        let handle = pool.submit_with(task, cost)?;
+        handles.push(handle);
+    }
+    let mut results = Vec::with_capacity(handles.len());
+    for handle in handles {
+        results.push(handle.wait()?.0);
+    }
+    Ok(results)
+}
+
 /// Spawns a task with the given cost in the global worker pool.
 /// This is a convenience wrapper around `WorkerPool::submit_with` using the global pool.
 pub fn spawn<F: FnOnce() + Send + 'static>(
