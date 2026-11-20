@@ -35,7 +35,7 @@ fn non_send_state_is_initialized_once_reused_and_dropped_on_its_worker() {
     let initialized = Arc::new(AtomicUsize::new(0));
     let count = Arc::clone(&initialized);
     let (dropped_tx, dropped_rx) = mpsc::channel();
-    let pool = WorkerPool::init_with_state(2, move || {
+    let pool = WorkerPool::init_with_state(2, true, move || {
         count.fetch_add(1, Ordering::SeqCst);
         Ok(LocalState::new(dropped_tx.clone()))
     })
@@ -77,7 +77,8 @@ fn non_send_state_pool_can_be_shared_between_submitters() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<WorkerPool<Rc<Cell<usize>>>>();
 
-    let pool = Arc::new(WorkerPool::init_with_state(2, || Ok(Rc::new(Cell::new(0)))).unwrap());
+    let pool =
+        Arc::new(WorkerPool::init_with_state(2, true, || Ok(Rc::new(Cell::new(0)))).unwrap());
     let submitter_pool = Arc::clone(&pool);
     let handle = thread::spawn(move || {
         submitter_pool.submit_with_state(|state| {
@@ -93,7 +94,7 @@ fn non_send_state_pool_can_be_shared_between_submitters() {
 
 #[test]
 fn different_workers_execute_stateful_tasks_concurrently() {
-    let pool = WorkerPool::init_with_state(2, || Ok(thread::current().id())).unwrap();
+    let pool = WorkerPool::init_with_state(2, true, || Ok(thread::current().id())).unwrap();
     let (started_tx, started_rx) = mpsc::channel();
     let (release_tx, release_rx) = crossbeam::channel::bounded(2);
     let mut handles = Vec::new();
@@ -129,7 +130,7 @@ fn different_workers_execute_stateful_tasks_concurrently() {
 fn initializer_error_cleans_up_started_workers() {
     let (dropped_tx, dropped_rx) = mpsc::channel();
     let attempts = AtomicUsize::new(0);
-    let result = WorkerPool::init_with_state(3, move || {
+    let result = WorkerPool::init_with_state(3, true, move || {
         if attempts.fetch_add(1, Ordering::SeqCst) == 1 {
             anyhow::bail!("session initialization failed");
         }
@@ -145,7 +146,7 @@ fn initializer_error_cleans_up_started_workers() {
 fn initializer_panic_cleans_up_started_workers() {
     let (dropped_tx, dropped_rx) = mpsc::channel();
     let attempts = AtomicUsize::new(0);
-    let result = WorkerPool::init_with_state(3, move || {
+    let result = WorkerPool::init_with_state(3, true, move || {
         assert_ne!(
             attempts.fetch_add(1, Ordering::SeqCst),
             1,
@@ -166,7 +167,7 @@ fn initializer_panic_cleans_up_started_workers() {
 
 #[test]
 fn task_panic_preserves_worker_and_mutated_state() {
-    let pool = WorkerPool::init_with_state(2, || Ok(0usize)).unwrap();
+    let pool = WorkerPool::init_with_state(2, true, || Ok(0usize)).unwrap();
     let task = pool
         .submit_to_worker_with_state(
             0,
@@ -189,7 +190,7 @@ fn task_panic_preserves_worker_and_mutated_state() {
 
 #[test]
 fn stateful_batch_keeps_lpt_order_and_legacy_tasks_work() {
-    let pool = WorkerPool::init_with_state(2, || Ok(0usize)).unwrap();
+    let pool = WorkerPool::init_with_state(2, true, || Ok(0usize)).unwrap();
     let tasks = (0..4).map(|id| {
         let cost = if id == 0 {
             TaskCost::Low
@@ -226,7 +227,8 @@ fn stateful_batch_keeps_lpt_order_and_legacy_tasks_work() {
 fn shutdown_drains_stateful_tasks_and_rejects_new_ones() {
     let (dropped_tx, dropped_rx) = mpsc::channel();
     let mut pool =
-        WorkerPool::init_with_state(2, move || Ok(LocalState::new(dropped_tx.clone()))).unwrap();
+        WorkerPool::init_with_state(2, true, move || Ok(LocalState::new(dropped_tx.clone())))
+            .unwrap();
     let handles: Vec<_> = (0..20)
         .map(|_| {
             pool.submit_with_state(|state| {

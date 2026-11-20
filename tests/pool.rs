@@ -30,7 +30,7 @@ fn assert_balanced(p: &WorkerPool) {
 
 #[test]
 fn loads_balance_after_all_tasks_complete() {
-    let p = WorkerPool::init_with(4).unwrap();
+    let p = WorkerPool::init_with(4, false).unwrap();
     let handles: Vec<TaskHandle<u64>> = (0..64u64)
         .map(|i| {
             let c = match i % 5 {
@@ -57,7 +57,7 @@ fn loads_balance_after_all_tasks_complete() {
 
 #[test]
 fn fire_and_forget_tasks_still_balance() {
-    let p = WorkerPool::init_with(4).unwrap();
+    let p = WorkerPool::init_with(4, false).unwrap();
     // drop every handle immediately; nobody waits.
     for i in 0..64u64 {
         let c = match i % 5 {
@@ -74,7 +74,7 @@ fn fire_and_forget_tasks_still_balance() {
 
 #[test]
 fn low_cost_tasks_count_toward_load() {
-    let p = WorkerPool::init_with(2).unwrap();
+    let p = WorkerPool::init_with(2, false).unwrap();
     p.submit_with(|| 1u64, TaskCost::Low)
         .unwrap()
         .wait()
@@ -90,7 +90,7 @@ fn low_cost_tasks_count_toward_load() {
 
 #[test]
 fn every_task_returns_its_value() {
-    let p = WorkerPool::init_with(4).unwrap();
+    let p = WorkerPool::init_with(4, false).unwrap();
     let sum: u64 = (0..64u64)
         .map(|i| p.submit(move || i * i).unwrap())
         .map(|h| h.wait().unwrap().0)
@@ -101,7 +101,7 @@ fn every_task_returns_its_value() {
 
 #[test]
 fn a_panicking_task_does_not_kill_its_worker() {
-    let p = WorkerPool::init_with(2).unwrap();
+    let p = WorkerPool::init_with(2, false).unwrap();
 
     let h = p.submit(|| -> () { panic!("boom") }).unwrap();
     let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -117,14 +117,14 @@ fn a_panicking_task_does_not_kill_its_worker() {
 
 #[test]
 fn submit_after_shutdown_is_refused() {
-    let mut p = WorkerPool::init_with(2).unwrap();
+    let mut p = WorkerPool::init_with(2, false).unwrap();
     p.shutdown().unwrap();
     assert!(p.submit(|| 1).is_err());
 }
 
 #[test]
 fn drop_without_shutdown_still_completes_tasks() {
-    let p = WorkerPool::init_with(2).unwrap();
+    let p = WorkerPool::init_with(2, false).unwrap();
     let h = p.submit(|| 42u64).unwrap();
     drop(p); // Drop runs shutdown(), which drains the queue and runs the task.
     assert_eq!(h.wait().unwrap().0, 42);
@@ -132,7 +132,7 @@ fn drop_without_shutdown_still_completes_tasks() {
 
 #[test]
 fn shutdown_drains_queued_tasks_without_waiting() {
-    let mut p = WorkerPool::init_with(4).unwrap();
+    let mut p = WorkerPool::init_with(4, false).unwrap();
     for _ in 0..200 {
         let _ = p.submit(|| ());
     }
@@ -144,7 +144,7 @@ fn shutdown_drains_queued_tasks_without_waiting() {
 
 #[test]
 fn concurrent_submit_balances() {
-    let p = Arc::new(WorkerPool::init_with(4).unwrap());
+    let p = Arc::new(WorkerPool::init_with(4, false).unwrap());
 
     let expected: u64 = (0..4u64)
         .flat_map(|t| (0..64u64).map(move |i| t * 1000 + i))
@@ -181,7 +181,7 @@ fn batch_spreads_work_across_all_workers() {
     const WORKERS: usize = 8;
     const TASKS: usize = 512;
 
-    let p = WorkerPool::init_with(WORKERS).unwrap();
+    let p = WorkerPool::init_with(WORKERS, false).unwrap();
 
     // alternate Low/High so the LPT sort has real ordering work to do
     let tasks = (0..TASKS).map(|i| {
@@ -214,7 +214,7 @@ fn batch_with_uniform_costs_spreads_evenly() {
     const WORKERS: usize = 8;
     const TASKS: usize = 256;
 
-    let p = WorkerPool::init_with(WORKERS).unwrap();
+    let p = WorkerPool::init_with(WORKERS, false).unwrap();
 
     let tasks = (0..TASKS).map(|i| (move || black_box(i), TaskCost::Normal));
     let handles = p.submit_batch(tasks).unwrap();
@@ -239,7 +239,7 @@ fn batch_with_uniform_costs_spreads_evenly() {
 
 #[test]
 fn batch_refused_after_shutdown() {
-    let mut p = WorkerPool::init_with(4).unwrap();
+    let mut p = WorkerPool::init_with(4, false).unwrap();
     p.shutdown().unwrap();
 
     let result = p.submit_batch((0..8).map(|i| (move || black_box(i), TaskCost::Normal)));
@@ -249,7 +249,7 @@ fn batch_refused_after_shutdown() {
 
 #[test]
 fn wait_all_tasks_waits_for_queued_and_running() {
-    let p = WorkerPool::init_with(4).unwrap();
+    let p = WorkerPool::init_with(4, false).unwrap();
 
     // more tasks than workers, and slow enough that some are still running
     // when the last one is dequeued
@@ -276,14 +276,14 @@ fn wait_all_tasks_waits_for_queued_and_running() {
 
 #[test]
 fn wait_all_tasks_returns_immediately_on_idle_pool() {
-    let p = WorkerPool::init_with(4).unwrap();
+    let p = WorkerPool::init_with(4, false).unwrap();
     p.wait_all().unwrap();
 }
 
 // Reference perf point for later refactors, not a correctness test, RUN IN RELEASE MODE
 #[test]
 fn perf_regress_reference_single() {
-    let p = WorkerPool::init_with(8).unwrap();
+    let p = WorkerPool::init_with(8, true).unwrap();
 
     const TASK_COUNT: usize = 178956; // MAGIC NUMBER, DO NOT CHANGE!!!
 
@@ -323,7 +323,7 @@ fn perf_regress_reference_single() {
 
 #[test]
 fn perf_regress_reference_batch() {
-    let p = WorkerPool::init_with(8).unwrap();
+    let p = WorkerPool::init_with(8, true).unwrap();
 
     const TASK_COUNT: usize = 178956;
 

@@ -28,6 +28,7 @@ pub struct WorkerHandle<S = ()> {
 /// so that the pool can wait for `all workers to be idle` and shutdown gracefully.
 pub fn init_worker<S, F>(
     id: usize,
+    try_pin_threads: bool,
     idle_tx: Sender<()>,
     initializer: F,
 ) -> Result<(WorkerHandle<S>, JoinHandle<()>)>
@@ -41,7 +42,7 @@ where
         total_task_cost: AtomicU64::new(0),
         total_task_executed: AtomicU64::new(0),
         total_task_exec_time: AtomicF64::new(0.0),
-        ewma_exec_time_per_task_cost: AtomicF64::new(22.5), // zero would cause weird behavior on cold start worker
+        ewma_exec_time_per_task_cost: AtomicF64::new(32.6), // zero would cause weird behavior on cold start worker
     });
     let thread_stats = Arc::clone(&stats);
     let thread_handle = std::thread::Builder::new()
@@ -65,9 +66,10 @@ where
                 return;
             }
 
-            // pin the worker thread to physical core, if possible
-            if let Some(core_id) =
-                core_affinity::get_core_ids().and_then(|ids| ids.get(id).cloned())
+            // trying to pin the worker thread to physical core, may fail
+            if try_pin_threads
+                && let Some(core_id) =
+                    core_affinity::get_core_ids().and_then(|ids| ids.get(id).cloned())
             {
                 core_affinity::set_for_current(core_id);
             }

@@ -54,29 +54,32 @@ pub struct WorkerState {
 }
 
 impl WorkerPool {
-    /// Creates a new worker pool with the number of threads equal to the `number of available CPU cores`.
+    /// Creates a new worker pool with the number of threads equal to the `number of available CPU cores`,
+    /// with `no thread pinning` to CPU cores.
     pub fn init() -> Result<Self> {
         let thread_count = std::thread::available_parallelism()?.get();
         assert!(
             thread_count >= 2,
             "worker pool must have at least 2 threads"
         );
-        Self::init_with(thread_count)
+        Self::init_with(thread_count, false)
     }
 
-    /// Creates a new worker pool with the `specified number of threads`.
-    pub fn init_with(n: usize) -> Result<Self> {
-        Self::init_with_state(n, || Ok(()))
+    /// Creates a new worker pool with the `specified number of threads`,
+    /// with `thread pinning` attempt to CPU cores if `try_pin_threads` is true.
+    pub fn init_with(n: usize, try_pin_threads: bool) -> Result<Self> {
+        Self::init_with_state(n, try_pin_threads, || Ok(()))
     }
 }
 
 impl<S: 'static> WorkerPool<S> {
-    /// Creates a new worker pool, initializing state once on each worker thread.
+    /// Creates a new worker pool, `initializing state` once on each worker thread.
+    /// If `try_pin_threads` is true, the pool will attempt to pin each worker thread to a specific CPU core.
     ///
     /// The pool calls the state initializer once inside each worker thread, and waits for it to complete.
-    /// An error or panics with initialization clear dropped workers, joins the worker threads, and returns an error.
+    /// An error or panics during initialization, drops the workers, joins the worker threads, and returns an error.
     /// State is dropped on its owning worker during shutdown.
-    pub fn init_with_state<F>(n: usize, state_initializer: F) -> Result<Self>
+    pub fn init_with_state<F>(n: usize, try_pin_threads: bool, state_initializer: F) -> Result<Self>
     where
         F: Fn() -> Result<S> + Send + Sync + 'static,
     {
@@ -91,7 +94,7 @@ impl<S: 'static> WorkerPool<S> {
         let mut threads: Vec<JoinHandle<()>> = Vec::with_capacity(n);
         for id in 0..n {
             let initializer = Arc::clone(&initializer);
-            match init_worker(id, idle_tx.clone(), move || initializer()) {
+            match init_worker(id, try_pin_threads, idle_tx.clone(), move || initializer()) {
                 Ok((worker, thread)) => {
                     handles.push(worker);
                     threads.push(thread);
@@ -228,6 +231,8 @@ impl<S: 'static> WorkerPool<S> {
             if n == 0 {
                 return Err(anyhow!("worker pool has been shut down"));
             }
+
+            // TODO: this is a problem, this dispatch is too good, and thats exactly the problem, ikyk
 
             // online approximation here; 0(1) instead of 0(n) scan
             // rand sample two distinct workers and pick the one

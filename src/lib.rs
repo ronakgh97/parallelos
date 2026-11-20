@@ -13,7 +13,7 @@
 //! fn main() {
 //!     let counter = Arc::new(AtomicUsize::new(0));
 //!     let counter_clone = Arc::clone(&counter);
-//!     let pool = WorkerPool::init_with(4).unwrap();
+//!     let pool = WorkerPool::init_with(4, false).unwrap();
 //!     for _ in 0..1024 {
 //!         let counter_clone = Arc::clone(&counter_clone);
 //!         pool.submit(move || {
@@ -205,7 +205,7 @@ pub fn as_completed<T>(
 #[test]
 fn lib_test() {
     init_global_pool();
-    let pool = WorkerPool::init_with(4).unwrap();
+    let pool = WorkerPool::init_with(4, false).unwrap();
     let counter = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
 
     let task_handles: Vec<_> = (0..100)
@@ -239,18 +239,29 @@ fn lib_test() {
     let elapsed = time_taken.elapsed();
     assert!(elapsed < std::time::Duration::from_millis(225));
 
+    // submit each task to a different worker so the scheduler cannot co-locate
+    // them on one worker (where FIFO would make the 500ms task finish first)
+    // finish_first is about result readiness, not scheduler placement
     let task_1 = pool
-        .submit(|| {
-            std::thread::sleep(std::time::Duration::from_millis(500));
-            44
-        })
+        .submit_to_worker(
+            0,
+            || {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                44
+            },
+            TaskCost::Normal,
+        )
         .unwrap();
 
     let task_2 = pool
-        .submit(|| {
-            std::thread::sleep(std::time::Duration::from_millis(200));
-            97
-        })
+        .submit_to_worker(
+            1,
+            || {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                97
+            },
+            TaskCost::Normal,
+        )
         .unwrap();
 
     let (first, second) = finish_first([task_1, task_2]);
